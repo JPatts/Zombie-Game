@@ -2,6 +2,9 @@ import pygame
 import sys
 import random
 import os
+import numpy as np
+from qlearning import QLearningAgent
+import time
 
 class MazeEnv:
     def __init__(self, board_number=1):
@@ -16,12 +19,13 @@ class MazeEnv:
         # For simplicity, we fix the board dimensions.
         self.num_rows = 10
         self.num_cols = 10
+        
+        self.screen = pygame.display.set_mode((self.num_cols * self.GRID_SIZE, self.num_rows * self.GRID_SIZE))
 
         # Set the grass path before generating the board
         self.grass_path = os.path.join("assets", "background_images", "grass_patch_1.png")
 
         # Create the Pygame display sized to our board
-        self.screen = pygame.display.set_mode((self.num_cols * self.GRID_SIZE, self.num_rows * self.GRID_SIZE))
         pygame.display.set_caption("Zombie Survival Game")
 
         # Generate the maze board (each cell holds a background and wall info)
@@ -53,10 +57,6 @@ class MazeEnv:
             self.zombie_image = pygame.Surface((self.GRID_SIZE, self.GRID_SIZE), pygame.SRCALPHA)
             self.zombie_image.fill((0, 255, 0))
 
-        # Set initial positions (using grid coordinates: (row, col))
-        self.human_pos = (self.num_rows - 1, 0)    # bottom-left
-        self.zombie_pos = (0, self.num_cols - 1)     # top-right
-
         # Load human dead image
         try:
             self.human_dead_image = pygame.image.load(os.path.join("assets", "human_images", "human_dead.png"))
@@ -68,6 +68,20 @@ class MazeEnv:
         # Load a list of zombie images for animation (if available)
         self.zombie_images = [self.zombie_image]  # or load multiple images as needed
         self.frame_count = 0
+
+        # Qlearning agent
+        self.reset()
+        state_size = len(self._get_obs())
+        action_size = 4
+        self.z_agent = QLearningAgent(state_size, action_size)
+
+        # initialize the human and zombie positions
+        self.reset()
+
+    def reset(self):  
+        self.human_pos = (self.num_rows - 1, 0)
+        self.zombie_pos = (0, self.num_cols - 1)
+        self.steps_taken = 0
 
     def _generate_board(self):
         """
@@ -117,14 +131,121 @@ class MazeEnv:
 
         return grid
 
+    def _get_obs(self):
+        # example state: [zombie_row, zombie_col, human_row, human_col]
+        hr, hc = self.human_pos
+        zr, zc = self.zombie_pos
+        return np.array([hr,hc,zr,zc], dtype=np.float32)
+    
+    def _manhattan_distance(self, pos1, pos2):
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+
+    def _get_new_position(self, position, action):
+        """
+        Given a grid position (row, col) and an action (0: up, 1: right, 2: down, 3: left),
+        return the new position if no wall blocks the movement.
+        """
+        row, col = position
+        walls = self.grid[row][col]['walls']
+
+        if action == 0 and row > 0 and not walls[0]:
+            row -= 1
+        elif action == 1 and col < self.num_cols - 1 and not walls[1]:
+            col += 1
+        elif action == 2 and row < self.num_rows - 1 and not walls[2]:
+            row += 1
+        elif action == 3 and col > 0 and not walls[3]:
+            col -= 1
+        return (row, col)
+
+    def step(self, zombie_action, human_action):
+        """ 
+        Move both the human and zombie. Then comute the reqard for the zombie
+        Return next_stat, reqard, done, info
+        """
+        # move human
+        if human_action is not None:
+            self.human_pos = self._get_new_position(self.human_pos, human_action)
+
+        # move zombie 
+        prev_distance = self._manhattan_distance(self.zombie_pos, self.human_pos)
+        self.zombie_pos = self._get_new_position(self.zombie_pos, zombie_action)
+
+        self.steps_taken += 1
+        new_distance = self._manhattan_distance(self.zombie_pos, self.human_pos)
+        max_distance = self.num_rows + self.num_cols - 2
+        distance_ratio = new_distance / max_distance
+        time_penalty = -0.1 * (self.steps_taken / 100)
+
+        # Reward system
+        if self.zombie_pos == self.human_pos:
+            reward = 100 + (50 * (1 - self.steps_taken / 200))
+        elif new_distance == 1:
+            reward = 25 * (1 - distance_ratio)
+        elif new_distance == 2:
+            reward = 10 * (prev_distance - new_distance) / max_distance
+        elif new_distance == max_distance - 1:
+            reward = -15 * (new_distance - prev_distance) / max_distance
+        else:
+            reward = -5
+        
+        reward += time_penalty
+        reward = max(-50, min(100, reward))
+
+        done = (self.zombie_pos == self.human_pos)
+        info = {
+            'distance_to_human': new_distance,
+            'human_pos': self.human_pos,
+            'zombie_pos': self.zombie_pos,
+        }
+
+        # return next_state, reward. done, info, for Qlearning 
+        return self._get_obs(), reward, done, info
+    
+    def single_update(self):
+        """
+        Called for each frame of run()
+        1. Get user input for human
+        2. Qlearning agent picks action for zombie
+        3. Call self.step() then agent.update()
+        """
+        # pygame events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            
+        keys = pygame.key.get_pressed()
+        human_action = None
+        if keys[pygame.K_UP]:
+            human_action = 0
+        elif keys[pygame.K_RIGHT]:
+            human_action = 1
+        elif keys[pygame.K_DOWN]:
+            human_action = 2
+        elif keys[pygame.K_LEFT]:
+            human_action = 3
+
+        current_state = self._get_obs()
+        zombie_action = self.z_agent.get_action(current_state)
+        next_state, reward, done, info = self.step(zombie_action, human_action)
+        self.z_agent.update(current_state, zombie_action, reward, next_state, done)
+
+        return done
+    
+    def render_frame(self):
+        """Redraw the background and the characters"""
+        self.screen.fill(self.WHITE)
+        self._draw_maze()
+        self._draw_characters()
+        pygame.display.flip()
+
     def _draw_maze(self):
         font = pygame.font.Font(None, 24)
         for row in range(self.num_rows):
             for col in range(self.num_cols):
                 x = col * self.GRID_SIZE
                 y = row * self.GRID_SIZE
-
-                # Draw background image
                 bg_path = self.grid[row][col]['background']
                 bg_image = self.background_images[bg_path]
                 self.screen.blit(bg_image, (x, y))
@@ -146,23 +267,28 @@ class MazeEnv:
                 self.screen.blit(text_surface, text_rect)
                 """
 
-    def _get_new_position(self, position, action):
+    def run_one_round(self, round_duration):
         """
-        Given a grid position (row, col) and an action (0: up, 1: right, 2: down, 3: left),
-        return the new position if no wall blocks the movement.
+        Run a single round for up to 'round_duration' seconds or until the zombie catches the human.
+        Returns True if the zombie caught the human, else False if time ran out
         """
-        row, col = position
-        walls = self.grid[row][col]['walls']
+        self.reset()
+        start_time = time.time()
+        clock = pygame.time.Clock()
 
-        if action == 0 and row > 0 and not walls[0]:
-            row -= 1
-        elif action == 1 and col < self.num_cols - 1 and not walls[1]:
-            col += 1
-        elif action == 2 and row < self.num_rows - 1 and not walls[2]:
-            row += 1
-        elif action == 3 and col > 0 and not walls[3]:
-            col -= 1
-        return (row, col)
+        caught_human = False
+        while True:
+            clock.tick(10)
+            done = self.single_update()
+            self.render_frame()
+            
+            elapsed = time.time() - start_time 
+            if done:
+                caught_human = True
+                break
+            if elapsed >= round_duration:
+                break
+        return caught_human
 
     def _get_neighbors(self, row, col):
         """
@@ -180,9 +306,6 @@ class MazeEnv:
             neighbors.append((row, col - 1))
         return neighbors
 
-    def _manhattan_distance(self, pos1, pos2):
-        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
-
     def _draw_characters(self):
         # Draw human and zombie at their grid positions
         human_x = self.human_pos[1] * self.GRID_SIZE
@@ -194,9 +317,15 @@ class MazeEnv:
 
     def update(self):
         """
-        Process user input for human movement and update the zombie's position
-        using a simple chase strategy.
+        called each frame from run()
+        This will do exactly ONE environment step here
+        1. Get user input
+        2. Let afent pick an action for zombie
+        3. call self.step() to get (next_state, reqard, done, info)
+        4. Then agent.update() to train the agent
         """
+
+        # process events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -205,37 +334,31 @@ class MazeEnv:
                 pygame.quit()
                 sys.exit()
 
-        # Human movement via arrow keys (grid-based)
+        # Get Human Action via arrow keys
+        human_action = None
         keys = pygame.key.get_pressed()
-        action = None
         if keys[pygame.K_UP]:
-            action = 0
+            human_action = 0
         elif keys[pygame.K_RIGHT]:
-            action = 1
+            human_action = 1
         elif keys[pygame.K_DOWN]:
-            action = 2
+            human_action = 2
         elif keys[pygame.K_LEFT]:
-            action = 3
-        if action is not None:
-            new_human_pos = self._get_new_position(self.human_pos, action)
-            # Only update if the position has changed
-            self.human_pos = new_human_pos
+            human_action = 3
 
-        # Zombie simple chase: choose the move that minimizes Manhattan distance to human
-        best_action = None
-        current_distance = self._manhattan_distance(self.zombie_pos, self.human_pos)
-        for a in range(4):
-            new_pos = self._get_new_position(self.zombie_pos, a)
-            d = self._manhattan_distance(new_pos, self.human_pos)
-            if d < current_distance:
-                current_distance = d
-                best_action = a
-        if best_action is not None:
-            self.zombie_pos = self._get_new_position(self.zombie_pos, best_action)
+        # Get Zombie action from QLearning Agent
+        current_state = self._get_obs()
+        zombie_action = self.z_agent.get_action(current_state)
+
+        # Environment step: move both agents then compute reward
+        next_state, reward, done, info = self.step(zombie_action, human_action)
+
+        # Update Qlearning agent
+        self.z_agent.update(current_state, zombie_action, reward, next_state, done)
+
         if self.zombie_pos == self.human_pos:
             self._game_over_screen()
-            pygame.quit()
-            sys.exit()
+            return True
 
     def run(self):
         clock = pygame.time.Clock()
@@ -243,9 +366,12 @@ class MazeEnv:
             clock.tick(10)  # Set FPS (grid-based movement, so lower FPS is acceptable)
             self.screen.fill(self.WHITE)
             self._draw_maze()
-            self.update()
+            round_over = self.update()
             self._draw_characters()
             pygame.display.flip()
+
+            if round_over:
+                return
     
     def _find_zombie_escape_path(self, human_row, human_col):
         # Choose the corner farthest from the human as the escape target.
@@ -331,10 +457,121 @@ class MazeEnv:
             pygame.display.flip()
             pygame.time.Clock().tick(5)
 
+def loading_screen(screen, clock):
+    screen.fill((0, 0, 0))
+    font = pygame.font.Font(None, 74)
+    loading_text = font.render("Loading...", True, (255, 255, 255))
+    loading_rect = loading_text.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2))
+    screen.blit(loading_text, loading_rect)
+    pygame.display.flip()
+    pygame.time.delay(2000)
+
+def show_about(screen,clock):
+    about_lines = [
+        "Zombie Survival Game",
+        "Created by Jonah Pattison & Christopher Slogget",
+        "use the arrow keys to move",
+        "See if you can escape the zombie at all 10 levels",
+        "Good Luck!",
+        "Press ESC to return to the main menu"
+    ]
+    font = pygame.font.Font(None, 40)
+    
+    while True:
+        screen.fill((0, 0, 0))
+        for i, line in enumerate(about_lines):
+            text = font.render(line, True, (255, 255, 255))
+            text_rect = text.get_rect(center=(screen.get_width() // 2, 100 + i * 50))
+            screen.blit(text, text_rect)
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return  # Return to the main menu
+        clock.tick(30)
+
+def start_session():
+    """ 
+    Run unlimited rounds of MazeEnv. Each round 90 seconds or until Zombie catches the human
+    """
+    env = MazeEnv()
+    round_num = 1
+
+    while True:
+        print(f"\nStarting Round {round_num} ...")
+        caught_human = env.run_one_round(round_duration=90)
+
+        if caught_human:
+            print("Zombie caught the human!")
+        else:
+            print("Time is up! Human survived!")
+        
+        # Ask user if they want to continue 
+        user_input = input("Play another round? (y/n): ").strip().lower()
+        if user_input != 'y':
+            # save agent data
+            filename = f"zombie_agent_after_round_{round_num}.pkl"
+            env.z_agent.save(filename)
+            print(f"Zombie Q-table save to {filename}. Exiting.")
+            break
+        else:
+            # save partial progress each round if desired
+            env.z_agent.save(f"zombie_agent_after_round_{round_num}.pkl")
+            round_num += 1
+
+def main_menu():
+    pygame.init()
+    screen = pygame.display.set_mode((800, 600))
+    pygame.display.set_caption("Zombie Survival Game")
+    clock = pygame.time.Clock()
+
+    # Show loading screen first.
+    loading_screen(screen, clock)
+
+    menu_options = ["Start", "About", "Quit"]
+    selected = 0  # Index of the currently selected option
+
+    while True:
+        screen.fill((50, 50, 50))
+        font = pygame.font.Font(None, 50)
+        
+        # Draw each menu option, highlighting the selected one.
+        for i, option in enumerate(menu_options):
+            color = (255, 0, 0) if i == selected else (255, 255, 255)
+            text = font.render(option, True, color)
+            text_rect = text.get_rect(center=(screen.get_width() // 2, 200 + i * 70))
+            screen.blit(text, text_rect)
+        
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(menu_options)
+                elif event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(menu_options)
+                elif event.key == pygame.K_RETURN:
+                    if menu_options[selected] == "Start":
+                        # Start the game.
+                        game_env = MazeEnv()
+                        game_env.run()
+                    elif menu_options[selected] == "About":
+                        # Show the about page.
+                        show_about(screen, clock)
+                    elif menu_options[selected] == "Quit":
+                        pygame.quit()
+                        sys.exit()
+        clock.tick(30)
 
 def main():
-    env = MazeEnv()
-    env.run()
+    main_menu()
 
 if __name__ == "__main__":
     main()
