@@ -272,6 +272,7 @@ class MazeEnv:
         Run a single round for up to 'round_duration' seconds or until the zombie catches the human.
         Returns True if the zombie caught the human, else False if time ran out
         """
+        self.grid = self._generate_board()
         self.reset()
         start_time = time.time()
         clock = pygame.time.Clock()
@@ -499,6 +500,11 @@ def start_session():
     Run unlimited rounds of MazeEnv. Each round 90 seconds or until Zombie catches the human
     """
     env = MazeEnv()
+
+    if os.path.exists("zombie_agent.pkl"):
+        env.z_agent.load("zombie_agent.pkl")
+        print("Zombie Q-table loaded from zombie_agent.pkl.")
+
     round_num = 1
 
     while True:
@@ -509,19 +515,55 @@ def start_session():
             print("Zombie caught the human!")
         else:
             print("Time is up! Human survived!")
-        
-        # Ask user if they want to continue 
-        user_input = input("Play another round? (y/n): ").strip().lower()
-        if user_input != 'y':
-            # save agent data
-            filename = f"zombie_agent_after_round_{round_num}.pkl"
-            env.z_agent.save(filename)
-            print(f"Zombie Q-table save to {filename}. Exiting.")
-            break
-        else:
-            # save partial progress each round if desired
-            env.z_agent.save(f"zombie_agent_after_round_{round_num}.pkl")
+
+        env.z_agent.save("zombie_agent.pkl")
+        print("Zombie agent saved")
+
+        prompt_clock = pygame.time.Clock()
+        if continue_prompt(env.screen, prompt_clock):
             round_num += 1
+        else:
+            print("Returning to main menu")
+            break 
+
+def continue_prompt(screen, clock):
+    """
+    Displays a prompt asking if the user wants to continue,
+    allowing selection of "Yes" or "No" via arrow keys.
+    Returns True if "Yes" is selected, False otherwise.
+    """
+    options = ["Yes", "No"]
+    selected = 0
+    font = pygame.font.Font(None, 50)
+    prompt_text = font.render("Continue?", True, (255, 255, 255))
+    
+    while True:
+        screen.fill((0, 0, 0))
+        # Draw the prompt title at the top
+        prompt_rect = prompt_text.get_rect(center=(screen.get_width() // 2, 150))
+        screen.blit(prompt_text, prompt_rect)
+        
+        # Draw the options and highlight the selected one
+        for i, option in enumerate(options):
+            color = (255, 0, 0) if i == selected else (255, 255, 255)
+            option_text = font.render(option, True, color)
+            option_rect = option_text.get_rect(center=(screen.get_width() // 2, 250 + i * 60))
+            screen.blit(option_text, option_rect)
+        
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(options)
+                elif event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(options)
+                elif event.key == pygame.K_RETURN:
+                    return options[selected] == "Yes"
+        clock.tick(30)
 
 def main_menu():
     pygame.init()
@@ -560,8 +602,7 @@ def main_menu():
                 elif event.key == pygame.K_RETURN:
                     if menu_options[selected] == "Start":
                         # Start the game.
-                        game_env = MazeEnv()
-                        game_env.run()
+                        start_session()
                     elif menu_options[selected] == "About":
                         # Show the about page.
                         show_about(screen, clock)
