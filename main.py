@@ -500,8 +500,10 @@ def start_session():
     """
     env = MazeEnv()
 
-    if os.path.exists("zombie_agent.pkl"):
-        env.z_agent.load("zombie_agent.pkl")
+    level = 15
+    model_path = f"training_models/zombie_agent_{level}.pkl"
+    if os.path.exists(model_path):
+        env.z_agent.load(model_path)
         print("Zombie Q-table loaded from zombie_agent.pkl.")
 
     round_num = 1
