@@ -4,7 +4,7 @@ import numpy as np
 import subprocess
 from main import MazeEnv
 
-def traing_agent(num_rounds=50, save_interval=5, commit_interval=50, round_duration=120):
+def traing_agent(num_rounds=10, save_interval=5, commit_interval=10, round_duration=60):
     """
     Training loop for the zombie agent
     Args:

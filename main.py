@@ -501,7 +501,7 @@ def start_session():
     env = MazeEnv()
 
     if os.path.exists("zombie_agent.pkl"):
-        env.z_agent.load("zombie_agent_700.pkl")
+        env.z_agent.load("zombie_agent.pkl")
         print("Zombie Q-table loaded from zombie_agent.pkl.")
 
     round_num = 1
