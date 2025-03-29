@@ -4,7 +4,7 @@ import numpy as np
 import subprocess
 from main import MazeEnv
 
-def traing_agent(num_rounds=5, save_interval=100, commit_interval=100, round_duration=90):
+def traing_agent(num_rounds=15, save_interval=5, commit_interval=15, round_duration=90):
     """
     Training loop for the zombie agent
     Args:
@@ -13,6 +13,11 @@ def traing_agent(num_rounds=5, save_interval=100, commit_interval=100, round_dur
         commit_interval (int): Interval for committing changes
         round_duration (int): Duration of each round in seconds
     """
+    # create folder for all training data
+    models_dir = "training_models"
+    if not os.path.exists(models_dir):
+        os.makedirs(models_dir)
+
     # initalize environment
     env = MazeEnv() 
 
@@ -51,9 +56,12 @@ def traing_agent(num_rounds=5, save_interval=100, commit_interval=100, round_dur
 
         # save the agent every save_interval rounds
         if round_num % save_interval == 0:
-            filename = f"zombie_agent_{round_num}.pkl"
             env.z_agent.save("zombie_agent.pkl")
-            print(f"Saved agent state at round {round_num}")
+            print(f"Saved agent state at round {round_num} to zombie_agent.pkl")
+
+            model_filename = os.path.join(models_dir, f"zombie_agent_{round_num}.pkl")
+            env.z_agent.save(model_filename)
+            print(f"Saved agent state at round {round_num} to {model_filename}")
 
         # save the agent every save_interval rounds
         if round_num % commit_interval == 0:
@@ -65,9 +73,10 @@ def traing_agent(num_rounds=5, save_interval=100, commit_interval=100, round_dur
                 print(f"Committed changes for round {round_num}")
             except Exception as e:
                 print(f"Git Operation failed: {e}")
-        
-    env.z_agent.save(f"zombie_agent_round_{round_num}.pkl")
-    print(f"Final agent saved as zombie_agent_round_{round_num}.pkl")
+    
+    final_model_filename = os.path.join(models_dir, f"zombie_agent_{round_num}.pkl")
+    env.z_agent.save(final_model_filename)
+    print(f"Final agent saved as {final_model_filename}")
 
 if __name__ == "__main__":
     traing_agent()
