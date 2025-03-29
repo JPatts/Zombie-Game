@@ -500,7 +500,7 @@ def start_session():
     """
     env = MazeEnv()
 
-    level = 15
+    level = 630
     model_path = f"training_models/zombie_agent_{level}.pkl"
     if os.path.exists(model_path):
         env.z_agent.load(model_path)
