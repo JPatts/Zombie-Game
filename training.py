@@ -2,7 +2,7 @@ import pygame
 import os
 from main import MazeEnv
 
-def traing_agent(num_rounds=50, save_interval=10, round_duration=60):
+def traing_agent(num_rounds=1000, save_interval=50, round_duration=90):
     # initalize environment
     env = MazeEnv() 
 

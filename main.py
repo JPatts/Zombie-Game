@@ -178,19 +178,18 @@ class MazeEnv:
         time_penalty = -0.1 * (self.steps_taken / 100)
 
         # Reward system
-        if self.zombie_pos == self.human_pos:
-            reward = 100 + (50 * (1 - self.steps_taken / 200))
-        elif new_distance == 1:
-            reward = 25 * (1 - distance_ratio)
-        elif new_distance == 2:
-            reward = 10 * (prev_distance - new_distance) / max_distance
-        elif new_distance == max_distance - 1:
-            reward = -15 * (new_distance - prev_distance) / max_distance
-        else:
-            reward = -5
+        old_distance = prev_distance
+        new_distance = self._manhattan_distance(self.zombie_pos, self.human_pos)
         
-        reward += time_penalty
-        reward = max(-50, min(100, reward))
+        if self.zombie_pos == self.human_pos:
+            reward = +100.0
+        else:
+            if new_distance < old_distance:
+                reward = +2.0
+            elif new_distance > old_distance:
+                reward = -2.0
+            else:
+                reward = -1.0
 
         done = (self.zombie_pos == self.human_pos)
         info = {
@@ -502,7 +501,7 @@ def start_session():
     env = MazeEnv()
 
     if os.path.exists("zombie_agent.pkl"):
-        env.z_agent.load("zombie_agent.pkl")
+        env.z_agent.load("zombie_agent_700.pkl")
         print("Zombie Q-table loaded from zombie_agent.pkl.")
 
     round_num = 1
