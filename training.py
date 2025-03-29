@@ -27,10 +27,14 @@ def traing_agent(num_rounds=100, save_interval=20, commit_interval=100, round_du
     # can make pygame winodw smaller to reduce overhead 
     pygame.display.set_mode((1,1))
 
-    if os.path.exists("zombie_agent.pkl"):
-        env.z_agent.load("zombie_agent.pkl")
-        print("Loaded existing zombie agent from zombie_agent.pkl")
-    
+    # load agent stat from specified file if provided
+    # otherwise use default file or start from scratch 
+    if load_file is not None and os.path.exists(load_file):
+        env.z_agent.load(load_file)
+        print(f"Loaded agent state from {load_file}")
+    else:
+        print("No load file provided or file does not exist. Starting from scratch.")
+
     env.training_mode = True
 
     # override single_update function to simulate human movement during training
@@ -41,6 +45,8 @@ def traing_agent(num_rounds=100, save_interval=20, commit_interval=100, round_du
         next_state, reward, done, info = env.step(zombie_action, human_action)
         env.z_agent.update(current_state, zombie_action, reward, next_state, done)
         return done 
+
+    env.single_update = training_single_update
 
     # Main training loop
     for round_num in range(1, num_rounds + 1):
@@ -79,4 +85,5 @@ def traing_agent(num_rounds=100, save_interval=20, commit_interval=100, round_du
     print(f"Final agent saved as {final_model_filename}")
 
 if __name__ == "__main__":
-    traing_agent()
+    load_file = sys.argv[1] if len(sys.argv) > 1 else None
+    traing_agent(load_file=load_file) 
