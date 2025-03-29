@@ -66,7 +66,7 @@ def traing_agent(num_rounds=10, save_interval=2, commit_interval=10, round_durat
             except Exception as e:
                 print(f"Git Operation failed: {e}")
         
-        env.z_agent.save("zombie_agennt_final.pkl")
+        env.z_agent.save("zombie_agent_final.pkl")
         print("Final agent saved as zombie_agent_final.pkl")
 
 if __name__ == "__main__":
