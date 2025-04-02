@@ -7,32 +7,35 @@ from qlearning import QLearningAgent
 import time
 
 class MazeEnv:
-    def __init__(self, board_number=1):
+    def __init__(self, board_number=1, maze_seed=None):
         pygame.init()
         # Constants for drawing and grid
+        self.num_rows = 10
+        self.num_cols = 10
+        self.maze_seed = maze_seed
         self.GRID_SIZE = 60
         self.LINE_WIDTH = 3
         self.WHITE = (255, 255, 255)
         self.GRAY = (200, 200, 200)
         self.BLACK = (0, 0, 0)
 
-        # For simplicity, we fix the board dimensions.
-        self.num_rows = 10
-        self.num_cols = 10
-        
+        # create pygame window 
         self.screen = pygame.display.set_mode((self.num_cols * self.GRID_SIZE, self.num_rows * self.GRID_SIZE))
+        # Create the Pygame display sized to our board
+        pygame.display.set_caption("Zombie Survival Game")
 
         # Set the grass path before generating the board
         self.grass_path = os.path.join("assets", "background_images", "grass_patch_1.png")
 
-        # Create the Pygame display sized to our board
-        pygame.display.set_caption("Zombie Survival Game")
+        # Set the random seed for reproducibility if provided
+        if self.maze_seed is not None:
+            random.seed(self.maze_seed)
 
         # Generate the maze board (each cell holds a background and wall info)
         self.grid = self._generate_board()
 
-        # Load background image and store it in background_images
         self.background_images = {}
+        # Load background image and store it in background_images
         try:
             bg_image = pygame.image.load(self.grass_path)
             bg_image = pygame.transform.scale(bg_image, (self.GRID_SIZE, self.GRID_SIZE))
@@ -271,17 +274,16 @@ class MazeEnv:
         Run a single round for up to 'round_duration' seconds or until the zombie catches the human.
         Returns True if the zombie caught the human, else False if time ran out
         """
-        self.grid = self._generate_board()
+        if self.maze_seed is None:
+            self.grid = self._generate_board()  # Regenerate the maze if no seed is provided
         self.reset()
         start_time = time.time()
         clock = pygame.time.Clock()
-
         caught_human = False
         while True:
             clock.tick(10)
             done = self.single_update()
             self.render_frame()
-            
             elapsed = time.time() - start_time 
             if done:
                 caught_human = True
@@ -498,7 +500,7 @@ def start_session():
     """ 
     Run unlimited rounds of MazeEnv. Each round 90 seconds or until Zombie catches the human
     """
-    env = MazeEnv()
+    env = MazeEnv(board_number=1, maze_seed=42)
 
     level = 5000
     model_path = f"training_models/zombie_agent_{level}.pkl"

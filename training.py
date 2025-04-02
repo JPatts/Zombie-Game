@@ -6,7 +6,9 @@ import numpy as np
 import subprocess
 from main import MazeEnv
 
-def traing_agent(num_rounds=5000, save_interval=500, commit_interval=2500, round_duration=5000, load_file=None):
+WATCH_GAME = True
+
+def traing_agent(num_rounds=5, save_interval=500, commit_interval=2500, round_duration=250, load_file=None):
     """
     Training loop for the zombie agent
     Args:
@@ -27,10 +29,15 @@ def traing_agent(num_rounds=5000, save_interval=500, commit_interval=2500, round
     env = MazeEnv() 
 
     # disable rendering by overriding the render_frame method
-    env.render_frame = lambda: None
+    if not WATCH_GAME:
+        env.render_frame = lambda: None
+        pygame.display.set_mode((1,1))
+    else:
+        window_width = env.num_cols * env.GRID_SIZE
+        window_height = env.num_rows * env.GRID_SIZE
+        pygame.display.set_mode((window_width, window_height))
     
     # can make pygame winodw smaller to reduce overhead 
-    pygame.display.set_mode((1,1))
 
     # load agent stat from specified file if provided
     # otherwise use default file or start from scratch 
@@ -46,20 +53,84 @@ def traing_agent(num_rounds=5000, save_interval=500, commit_interval=2500, round
     def training_single_update():
         current_state = env._get_obs()
         zombie_action = env.z_agent.get_action(current_state)
-        human_action = np.random.randint(4)
+        human_action = simulated_human_action(env)
         next_state, reward, done, info = env.step(zombie_action, human_action)
         env.z_agent.update(current_state, zombie_action, reward, next_state, done)
         return done 
 
     env.single_update = training_single_update
 
+    def simulated_human_action(env):
+        """
+        Simulate player input by using rule-based logic
+        - Human always moves to oppositte quadrant than zombie; attempts to flee to oppositte corner
+        - If zombie is within 4 cells human will stop trying to move to oppositte quadrant and calculate moves
+            to zombie and do exact oppsite; if zombie and human in hallway human moves other direction right away
+        - no matter what every 15 steps human makes random move to simulate unpredictability
+        """ 
+
+        # init step counter for human
+        if not hasattr(env, 'human_sim_step_count'):
+            env.human_sim_step_count = 0
+        env.human_sim_step_count += 1
+
+        # every 15 steps make random move
+        if env.human_sim_step_count % 15 == 0:
+            return np.random.randint(4)
+        
+        # if zombie is within 4 cells; human moves directly away
+        if env._manhattan_distance(env.human_pos, env.zombie_pos) <= 4:
+            # Calculate the direction to move away from the zombie
+            dx = env.zombie_pos[0] - env.human_pos[0]
+            dy = env.human_pos[1] - env.zombie_pos[1]
+
+            if abs(dx) >= abs(dy):
+                return 0 if dx > 0 else 2  # Move left if zombie is to the left, right if to the right
+            else:
+                return 3 if dy > 0 else 1
+        
+        # otherwise rely on opp quadrant logic
+        mid_row = env.num_rows // 2
+        mid_col = env.num_cols // 2
+        zr, zc = env.zombie_pos
+
+        # determine zombie quadrant and set target for oppositte 
+        # Quad 1: top right
+        # Quad 2: top left
+        # Quad 3: bottom left
+        # Quad 4: bottom right
+        if zr < mid_row and zc >= mid_col: # zombie in Q1
+            target = (env.num_rows -1, 0)
+        elif zr < mid_row and zc < mid_col:  # zombie in Q2
+            target = (env.num_rows - 1, env.num_cols - 1)  # bottom right corner
+        elif zr >= mid_row and zc < mid_col:  # zombie in Q3
+            target = (0, env.num_cols - 1)  # top right corner
+        else:  # zombie in Q4
+            target = (0, 0)  # top left corner
+
+        # Calculate the direction to move towards the target corner
+        hr, hc = env.human_pos
+        diff_r = target[0] - hr
+        diff_c = target[1] - hc
+        if abs(diff_r) >= abs(diff_c):
+            return 2 if diff_r > 0 else 0
+        else:
+            return 1 if diff_c > 0 else 3
+
     # Main training loop
     for round_num in range(1, num_rounds + 1):
         env.reset()
         done = False
         round_start_time = pygame.time.get_ticks()
+
+        if WATCH_GAME:
+            clock = pygame.time.Clock()
+
         while not done:
             done = env.single_update()
+            if WATCH_GAME:
+                env.render_frame()
+                clock.tick(30)
             if pygame.time.get_ticks() - round_start_time > round_duration * 1000:
                 break
         
